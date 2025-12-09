@@ -9,11 +9,6 @@
   <% end %>
 </p>
 
-<p>
-  <strong>Total Price Changes:</strong>
-  <%= @product.price_changes.size %>
-</p>
-
 <h2>Price Changes</h2>
 <table>
   <thead>
@@ -24,7 +19,7 @@
     </tr>
   </thead>
   <tbody>
-    <% @product.price_changes.each do |event| %>
+    <% @price_changes_pagination[:records].each do |event| %>
       <tr>
         <td><%= event.event_time&.strftime("%Y-%m-%d %H:%M") %></td>
         <td><%= event.formatted_price %></td>
@@ -33,11 +28,7 @@
     <% end %>
   </tbody>
 </table>
-
-<p>
-  <strong>Total Inventory Changes:</strong>
-  <%= @product.inventory_changes.size %>
-</p>
+<%= pagination_links(@price_changes_pagination, path: product_path(@product), param: :price_page) %>
 
 <h2>Inventory Changes</h2>
 <table>
@@ -49,7 +40,7 @@
     </tr>
   </thead>
   <tbody>
-    <% @product.inventory_changes.each do |event| %>
+    <% @inventory_changes_pagination[:records].each do |event| %>
       <tr>
         <td><%= event.event_time&.strftime("%Y-%m-%d %H:%M") %></td>
         <td><%= event.inventory_present ? "Yes" : "No" %></td>
@@ -58,6 +49,7 @@
     <% end %>
   </tbody>
 </table>
+<%= pagination_links(@inventory_changes_pagination, path: product_path(@product)) %>
 
 <nav>
   <%= link_to "Back to Products", products_path %> |

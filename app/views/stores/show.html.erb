@@ -5,11 +5,6 @@
   <%= @store.address %>
 </p>
 
-<p>
-  <strong>Total Inventory Changes:</strong>
-  <%= @store.inventory_changes.size %>
-</p>
-
 <h2>Inventory Changes</h2>
 <table>
   <thead>
@@ -21,7 +16,7 @@
     </tr>
   </thead>
   <tbody>
-    <% @store.inventory_changes.each do |event| %>
+    <% @inventory_changes_pagination[:records].each do |event| %>
       <tr>
         <td><%= event.event_time&.strftime("%Y-%m-%d %H:%M") %></td>
         <td><%= event.inventory_present ? "Yes" : "No" %></td>
@@ -31,6 +26,7 @@
     <% end %>
   </tbody>
 </table>
+<%= pagination_links(@inventory_changes_pagination, path: store_path(@store)) %>
 
 <nav>
   <%= link_to "Back to Stores", stores_path %> |

@@ -10,6 +10,31 @@
 </p>
 
 <p>
+  <strong>Total Price Changes:</strong>
+  <%= @product.price_changes.size %>
+</p>
+
+<h2>Price Changes</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Event Time</th>
+      <th>Price</th>
+      <th>Store Address</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% @product.price_changes.each do |event| %>
+      <tr>
+        <td><%= event.event_time&.strftime("%Y-%m-%d %H:%M") %></td>
+        <td><%= event.formatted_price %></td>
+        <td><%= event.store.address %></td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>
+
+<p>
   <strong>Total Inventory Changes:</strong>
   <%= @product.inventory_changes.size %>
 </p>

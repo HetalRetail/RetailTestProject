@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2025_12_09_151050) do
+ActiveRecord::Schema[7.1].define(version: 2025_12_09_152549) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -31,6 +31,17 @@ ActiveRecord::Schema[7.1].define(version: 2025_12_09_151050) do
     t.index ["store_id"], name: "index_inventory_changes_on_store_id"
   end
 
+  create_table "price_changes", force: :cascade do |t|
+    t.integer "current_price_cents"
+    t.bigint "product_id", null: false
+    t.bigint "store_id", null: false
+    t.datetime "event_time"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["product_id"], name: "index_price_changes_on_product_id"
+    t.index ["store_id"], name: "index_price_changes_on_store_id"
+  end
+
   create_table "products", force: :cascade do |t|
     t.string "name"
     t.bigint "brand_id", null: false
@@ -47,5 +58,7 @@ ActiveRecord::Schema[7.1].define(version: 2025_12_09_151050) do
 
   add_foreign_key "inventory_changes", "products"
   add_foreign_key "inventory_changes", "stores"
+  add_foreign_key "price_changes", "products"
+  add_foreign_key "price_changes", "stores"
   add_foreign_key "products", "brands"
 end

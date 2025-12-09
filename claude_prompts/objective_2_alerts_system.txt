@@ -1,0 +1,894 @@
+Objective 2 - Alerts System
+
+Add Alerts
+
+> hello. we need to add an Alert model. The Alert should belong to the brand, product, and store. it should be created in a
+callback after a new InventoryChange is created, if the new record does not have inventory_present and the previous one for that
+product/store combo did not either. once we create this model we should have an index and show page for the alerts that the user
+can access by following a link on the brand page to the brand's alerts. on the show page it should indicate "out of stock since
+<last inventory_present date>" and show a count of the consecutive out of stock updates. for example of there's been 3 out of stock
+ updates for a given product/store combo we can show that count
+
+⏺ I'll help you add an Alert model with the described functionality. Let me first explore the codebase to understand the existing
+  structure.
+
+⏺ Explore(Explore Rails codebase structure)
+  ⎿  Done (23 tool uses · 21.1k tokens · 31s)
+
+⏺ Now let me read the key model files to understand the exact structure:
+
+⏺ Read(app/models/inventory_change.rb)
+  ⎿  Read 5 lines
+
+⏺ Read(app/models/brand.rb)
+  ⎿  Read 4 lines
+
+⏺ Read(app/models/product.rb)
+  ⎿  Read 6 lines
+
+⏺ Read(db/schema.rb)
+  ⎿  Read 65 lines
+
+⏺ Read(config/routes.rb)
+  ⎿  Read 15 lines
+
+⏺ Read(app/views/brands/show.html.erb)
+  ⎿  Read 34 lines
+
+⏺ Now I have a clear understanding. Let me create a todo list and implement all the required changes:
+
+⏺ Bash(bin/rails generate migration CreateAlerts brand:references product:references store:references)
+  ⎿  Interrupted · What should Claude do instead?
+
+> does it make sense to also store the streak / the number of consecutive out of stock updates? or the the date for the last "in
+stock" update? we don't have to, just wondering. also can we actually name this model something more specific than Alert? maybe
+like InventoryAlert or something like that
+
+⏺ Good questions!
+
+  Storing the streak count / last in-stock date:
+  I'd recommend not storing these directly on the alert. Here's why:
+
+  1. Streak count: If we store it, we'd need to update the alert record every time a new out-of-stock InventoryChange comes in.
+  This creates extra write operations and the potential for the count to get out of sync. Instead, we can calculate it on-the-fly
+  by counting consecutive out-of-stock InventoryChanges for that product/store combo - it's a simple query and always accurate.
+  2. Last in-stock date: Same reasoning - we can derive this by finding the most recent InventoryChange where inventory_present =
+  true for that product/store. Storing it would mean updating it if we ever backfill data or if there's a correction.
+
+  The downside of deriving is slightly more database queries on the show page, but for a read-only display that's usually fine. If
+  performance becomes an issue later, we could add caching or denormalize then.
+
+  Naming:
+  Yes, InventoryAlert is better - more specific and leaves room for other alert types in the future (e.g., PriceAlert). I'll use
+  that name.
+
+  Let me proceed with the implementation:
+
+⏺ Bash(bin/rails generate migration CreateInventoryAlerts brand:references product:references store:references)
+  ⎿        invoke  active_record
+           create    db/migrate/20251209162809_create_inventory_alerts.rb
+
+⏺ Read(db/migrate/20251209162809_create_inventory_alerts.rb)
+  ⎿  Read 12 lines
+
+⏺ Write(app/models/inventory_alert.rb)
+  ⎿  User rejected write to app/models/inventory_alert.rb
+        1 +  class InventoryAlert < ApplicationRecord
+        2 +    belongs_to :brand
+        3 +    belongs_to :product
+        4 +    belongs_to :store
+        5 +
+        6 +    def last_in_stock_time
+        7 +      InventoryChange
+        8 +        .where(product_id: product_id, store_id: store_id, inventory_present: true)
+        9 +        .where("event_time < ?", created_at)
+       10 +        .order(event_time: :desc)
+       11 +        .first
+       12 +        &.event_time
+       13 +    end
+       14 +
+       15 +    def consecutive_out_of_stock_count
+       16 +      InventoryChange
+       17 +        .where(product_id: product_id, store_id: store_id, inventory_present: false)
+       18 +        .where("event_time >= ?", last_in_stock_time || Time.at(0))
+       19 +        .count
+       20 +    end
+       21 +  end
+
+> instead have a method for last_in_stock and then we can get the time from that as needed and use the id from that record instead
+of querying for event_time in consecutive_out_of_stock_count
+
+⏺ Good call - that's cleaner and avoids redundant queries. We can get the InventoryChange record once and use both its event_time
+  and id as needed.
+
+⏺ Write(app/models/inventory_alert.rb)
+  ⎿  User rejected write to app/models/inventory_alert.rb
+        1 +  class InventoryAlert < ApplicationRecord
+        2 +    belongs_to :brand
+        3 +    belongs_to :product
+        4 +    belongs_to :store
+        5 +
+        6 +    def last_in_stock
+        7 +      InventoryChange
+        8 +        .where(product_id: product_id, store_id: store_id, inventory_present: true)
+        9 +        .where("event_time < ?", created_at)
+       10 +        .order(event_time: :desc)
+       11 +        .first
+       12 +    end
+       13 +
+       14 +    def consecutive_out_of_stock_count
+       15 +      scope = InventoryChange.where(product_id: product_id, store_id: store_id, inventory_present: false)
+       16 +      scope = scope.where("id > ?", last_in_stock.id) if last_in_stock
+       17 +      scope.count
+       18 +    end
+       19 +  end
+
+> does it make sense to add a scope or some other abstraction to avoid this repetition "InventoryChange.where(product_id:
+product_id, store_id: store_id, inventory_present: false)" perhaps an abstraction of related updates makes sense. what do you
+think?
+
+⏺ Yes, that makes sense. A few options:
+
+  1. Scope on InventoryChange: Something like InventoryChange.for_product_store(product_id, store_id) - but scopes with multiple
+  params can feel clunky.
+  2. Method on InventoryAlert: A private method like inventory_changes_for_location that returns InventoryChange.where(product_id:
+  product_id, store_id: store_id). Then you chain .where(inventory_present: true/false) as needed. This keeps the abstraction local
+   to where it's used.
+  3. Association with scope: You could do has_many :inventory_changes, ->(alert) { where(store_id: alert.store_id) }, through:
+  :product but this feels overly clever and harder to reason about.
+
+  I'd lean toward option 2 - a simple private method on InventoryAlert:
+
+  private
+
+  def related_inventory_changes
+    InventoryChange.where(product_id: product_id, store_id: store_id)
+  end
+
+  Then the public methods become:
+  def last_in_stock
+    related_inventory_changes
+      .where(inventory_present: true)
+      .where("event_time < ?", created_at)
+      .order(event_time: :desc)
+      .first
+  end
+
+  It's simple, readable, and the abstraction lives right where it's used. Does that approach work for you?
+
+> yes let's do option 2
+
+⏺ Write(app/models/inventory_alert.rb)
+  ⎿  Wrote 26 lines to app/models/inventory_alert.rb
+     class InventoryAlert < ApplicationRecord
+       belongs_to :brand
+       belongs_to :product
+       belongs_to :store
+       def last_in_stock
+         related_inventory_changes
+           .where(inventory_present: true)
+           .where("event_time < ?", created_at)
+           .order(event_time: :desc)
+     … +16 lines (ctrl+o to expand)
+
+⏺ Now let me add the has_many associations to the other models:
+
+⏺ Update(app/models/brand.rb)
+  ⎿  Updated app/models/brand.rb with 1 addition
+       1    class Brand < ApplicationRecord
+       2        has_many :products
+       3 +      has_many :inventory_alerts
+       4    end
+
+⏺ Update(app/models/product.rb)
+  ⎿  Updated app/models/product.rb with 1 addition
+       2        belongs_to :brand
+       3        has_many :inventory_changes
+       4        has_many :price_changes
+       5 +      has_many :inventory_alerts
+       6    end
+
+⏺ Read(app/models/store.rb)
+  ⎿  Read 4 lines
+
+⏺ Update(app/models/store.rb)
+  ⎿  Updated app/models/store.rb with 1 addition
+       1    class Store < ApplicationRecord
+       2        has_many :inventory_changes
+       3 +      has_many :inventory_alerts
+       4    end
+
+⏺ Now let me add the after_create callback to InventoryChange:
+
+⏺ Update(app/models/inventory_change.rb)
+  ⎿  Updated app/models/inventory_change.rb with 22 additions
+        1    class InventoryChange < ApplicationRecord
+        2      belongs_to :product
+        3      belongs_to :store
+        4 +
+        5 +    after_create :create_inventory_alert_if_needed
+        6 +
+        7 +    private
+        8 +
+        9 +    def create_inventory_alert_if_needed
+       10 +      return if inventory_present
+       11 +
+       12 +      previous = InventoryChange
+       13 +        .where(product_id: product_id, store_id: store_id)
+       14 +        .where.not(id: id)
+       15 +        .order(event_time: :desc)
+       16 +        .first
+       17 +
+       18 +      return if previous&.inventory_present
+       19 +
+       20 +      InventoryAlert.create!(
+       21 +        brand: product.brand,
+       22 +        product: product,
+       23 +        store: store
+       24 +      )
+       25 +    end
+       26    end
+  ⎿  API Error: 500 {"type":"error","error":{"type":"api_error","message":"Internal server error"},"request_id":null}
+
+> please try again
+
+⏺ Looking at the callback logic again - the condition should be: create an alert if the new record does not have inventory_present
+  AND the previous one also did not have inventory_present. But we also need to handle the case where there's no previous record
+  (first time seeing this product/store out of stock).
+
+  Let me reconsider: If there's no previous record and this one is out of stock, should we create an alert? I think yes - it's the
+  first observation and it's out of stock.
+
+⏺ Update(app/models/inventory_change.rb)
+  ⎿  Updated app/models/inventory_change.rb with 1 addition and 1 removal
+       15          .order(event_time: :desc)
+       16          .first
+       17
+       18 -      return if previous&.inventory_present
+       18 +      return if previous.nil? || previous.inventory_present
+       19
+       20        InventoryAlert.create!(
+       21          brand: product.brand,
+
+⏺ So the logic now is:
+  - If this new record has inventory → no alert
+  - If there's no previous record → no alert (first observation being out of stock isn't a "consecutive" out of stock)
+  - If the previous record had inventory → no alert (this is the first out of stock, not consecutive)
+  - Only create alert if: this record is out of stock AND previous record was also out of stock
+
+  Does that match your intent, or should the first out-of-stock observation also trigger an alert?
+
+> sounds good. can you also create the controllers and views
+
+⏺ Write(app/controllers/inventory_alerts_controller.rb)
+  ⎿  User rejected write to app/controllers/inventory_alerts_controller.rb
+        1 +  class InventoryAlertsController < ApplicationController
+        2 +    def index
+        3 +      @brand = Brand.find(params[:brand_id])
+        4 +      @inventory_alerts = @brand.inventory_alerts.includes(:product, :store)
+        5 +    end
+        6 +
+        7 +    def show
+        8 +      @brand = Brand.find(params[:brand_id])
+        9 +      @inventory_alert = @brand.inventory_alerts.find(params[:id])
+       10 +    end
+       11 +  end
+
+⏺ Update(config/routes.rb)
+  ⎿  Interrupted · What should Claude do instead?
+
+> does it make sense to namespace this under brands/inventory_alerts?
+
+⏺ That's a good question. A few considerations:
+
+  Nested under brands (/brands/:brand_id/inventory_alerts) - current approach:
+  - Makes sense if alerts are always accessed in the context of a brand
+  - URL clearly shows the hierarchy
+  - Controller needs to scope by brand
+
+  Namespaced (/brands/inventory_alerts) - what you're asking about:
+  - This would be more like an admin namespace, e.g. Brands::InventoryAlertsController
+  - Useful if you want to organize controllers into folders
+  - But the URL /brands/inventory_alerts without a brand_id doesn't quite fit since alerts belong to a specific brand
+
+  Top-level (/inventory_alerts):
+  - Simpler URLs
+  - Could filter by brand via query params if needed
+  - Makes sense if you'd ever want to see alerts across all brands
+
+  Given that you said "user can access by following a link on the brand page to the brand's alerts", the nested route
+  (/brands/:brand_id/inventory_alerts) seems like the right fit. The alerts are being viewed in the context of a specific brand.
+
+  If you meant namespacing the controller file into app/controllers/brands/inventory_alerts_controller.rb while keeping the nested
+  route, that's also reasonable for organization but adds a bit of complexity. I'd probably skip that unless you have many nested
+  resources under brands.
+
+  Should I proceed with the nested route approach (/brands/:brand_id/inventory_alerts)?
+
+> yes lets do the nested route approach
+
+⏺ Write(app/controllers/inventory_alerts_controller.rb)
+  ⎿  Wrote 12 lines to app/controllers/inventory_alerts_controller.rb
+     class InventoryAlertsController < ApplicationController
+       def index
+         @brand = Brand.find(params[:brand_id])
+         @inventory_alerts = @brand.inventory_alerts.includes(:product, :store)
+       end
+       def show
+         @brand = Brand.find(params[:brand_id])
+         @inventory_alert = @brand.inventory_alerts.find(params[:id])
+       end
+     … +2 lines (ctrl+o to expand)
+
+⏺ Update(config/routes.rb)
+  ⎿  Updated config/routes.rb with 3 additions and 1 removal
+        7
+        8      resources :products, only: [:index, :show]
+        9      resources :stores, only: [:index, :show]
+       10 -    resources :brands, only: [:index, :show]
+       10 +    resources :brands, only: [:index, :show] do
+       11 +      resources :inventory_alerts, only: [:index, :show]
+       12 +    end
+       13
+       14      # Defines the root path route ("/")
+       15      root "stores#index"
+
+⏺ Bash(mkdir -p /Users/jared/code/RetailTestProject/app/views/inventory_alerts)
+  ⎿  (No content)
+
+⏺ Write(app/views/inventory_alerts/index.html.erb)
+  ⎿  Wrote 30 lines to app/views/inventory_alerts/index.html.erb
+     <h1>Inventory Alerts for <%= @brand.name %></h1>
+     <table>
+       <thead>
+         <tr>
+           <th>Product</th>
+           <th>Store</th>
+           <th>Created</th>
+           <th></th>
+         </tr>
+     … +20 lines (ctrl+o to expand)
+
+⏺ Write(app/views/inventory_alerts/show.html.erb)
+  ⎿  User rejected write to app/views/inventory_alerts/show.html.erb
+        1 +  <h1>Inventory Alert</h1>
+        2 +
+        3 +  <p>
+        4 +    <strong>Brand:</strong>
+        5 +    <%= link_to @inventory_alert.brand.name, brand_path(@inventory_alert.brand) %>
+        6 +  </p>
+        7 +
+        8 +  <p>
+        9 +    <strong>Product:</strong>
+       10 +    <%= link_to @inventory_alert.product.name, product_path(@inventory_alert.product) %>
+       11 +  </p>
+       12 +
+       13 +  <p>
+       14 +    <strong>Store:</strong>
+       15 +    <%= link_to @inventory_alert.store.address, store_path(@inventory_alert.store) %>
+       16 +  </p>
+       17 +
+       18 +  <p>
+       19 +    <strong>Out of stock since:</strong>
+       20 +    <% if @inventory_alert.last_in_stock %>
+       21 +      <%= @inventory_alert.last_in_stock.event_time.strftime("%Y-%m-%d %H:%M") %>
+       22 +    <% else %>
+       23 +      Never in stock
+       24 +    <% end %>
+       25 +  </p>
+       26 +
+       27 +  <p>
+       28 +    <strong>Consecutive out of stock updates:</strong>
+       29 +    <%= @inventory_alert.consecutive_out_of_stock_count %>
+       30 +  </p>
+       31 +
+       32 +  <nav>
+       33 +    <%= link_to "Back to Alerts", brand_inventory_alerts_path(@brand) %> |
+       34 +    <%= link_to @brand.name, brand_path(@brand) %> |
+       35 +    <%= link_to "Brands", brands_path %> |
+       36 +    <%= link_to "Products", products_path %> |
+       37 +    <%= link_to "Stores", stores_path %>
+       38 +  </nav>
+
+> for the out of stock since part of the view, let's move that logic back into the model so taht we can call
+inventory_alert.last_in_stock_at from the view
+
+⏺ Update(app/models/inventory_alert.rb)
+  ⎿  Updated app/models/inventory_alert.rb with 4 additions
+       11          .first
+       12      end
+       13
+       14 +    def last_in_stock_at
+       15 +      last_in_stock&.event_time
+       16 +    end
+       17 +
+       18      def consecutive_out_of_stock_count
+       19        scope = related_inventory_changes.where(inventory_present: false)
+       20        scope = scope.where("id > ?", last_in_stock.id) if last_in_stock
+
+⏺ Write(app/views/inventory_alerts/show.html.erb)
+  ⎿  Wrote 39 lines to app/views/inventory_alerts/show.html.erb
+     <h1>Inventory Alert</h1>
+     <p>
+       <strong>Brand:</strong>
+       <%= link_to @inventory_alert.brand.name, brand_path(@inventory_alert.brand) %>
+     </p>
+     <p>
+       <strong>Product:</strong>
+       <%= link_to @inventory_alert.product.name, product_path(@inventory_alert.product) %>
+     … +29 lines (ctrl+o to expand)
+
+⏺ Now let me add the link to the brand show page:
+
+⏺ Update(app/views/brands/show.html.erb)
+  ⎿  Updated app/views/brands/show.html.erb with 4 additions
+        5      <%= @brand.products.size %>
+        6    </p>
+        7
+        8 +  <p>
+        9 +    <%= link_to "View Inventory Alerts", brand_inventory_alerts_path(@brand) %>
+       10 +  </p>
+       11 +
+       12    <h2>Products</h2>
+       13    <table>
+       14      <thead>
+
+⏺ Bash(bin/rails db:migrate)
+  ⎿  == 20251209162809 CreateInventoryAlerts: migrating ============================
+     -- create_table(:inventory_alerts)
+        -> 0.0142s
+     == 20251209162809 CreateInventoryAlerts: migrated (0.0142s) ===================
+
+⏺ Bash(bin/rails routes | grep inventory_alert)
+  ⎿                    brand_inventory_alerts GET  /brands/:brand_id/inventory_alerts(.:format)
+                       inventory_alerts#index
+                        brand_inventory_alert GET  /brands/:brand_id/inventory_alerts/:id(.:format)
+                       inventory_alerts#show
+
+⏺ All done. Here's a summary of what was created:
+
+  Model (app/models/inventory_alert.rb):
+  - belongs_to brand, product, and store
+  - last_in_stock - returns the last InventoryChange record where inventory was present
+  - last_in_stock_at - returns the event_time of that record
+  - consecutive_out_of_stock_count - counts out-of-stock updates since last in-stock
+
+  Callback (app/models/inventory_change.rb):
+  - after_create :create_inventory_alert_if_needed - creates an alert when both the new and previous InventoryChange for a
+  product/store combo are out of stock
+
+  Routes:
+  - GET /brands/:brand_id/inventory_alerts → index
+  - GET /brands/:brand_id/inventory_alerts/:id → show
+
+  Views:
+  - Index: lists alerts with product, store, and created date
+  - Show: displays brand, product, store, "out of stock since" date, and consecutive count
+
+  Brand show page: Added "View Inventory Alerts" link
+
+> can you add a script similar to what we did in app/services/price_changes/backfill.rb to find all instances of InventoryChanges
+that shoudl be backfilled with an alert?
+
+⏺ Read(app/services/price_changes/backfill.rb)
+  ⎿  Read 45 lines
+
+⏺ I see - that's actually a script to generate random test data. For the InventoryAlerts backfill, we need to look at existing
+  InventoryChange records and create alerts where consecutive out-of-stock records exist. Let me create that:
+
+⏺ Bash(mkdir -p /Users/jared/code/RetailTestProject/app/services/inventory_alerts)
+  ⎿  (No content)
+
+⏺ Write(app/services/inventory_alerts/backfill.rb)
+  ⎿  User rejected write to app/services/inventory_alerts/backfill.rb
+        1 +  module InventoryAlerts
+        2 +    class Backfill
+        3 +      def call
+        4 +        created_count = 0
+        5 +
+        6 +        InventoryChange.where(inventory_present: false).find_each do |inventory_change|
+        7 +          previous = InventoryChange
+        8 +            .where(product_id: inventory_change.product_id, store_id: inventory_change.store_id)
+        9 +            .where.not(id: inventory_change.id)
+       10 +            .where("event_time < ?", inventory_change.event_time)
+       11 +            .order(event_time: :desc)
+       12 +            .first
+       13 +
+       14 +          next if previous.nil? || previous.inventory_present
+       15 +
+       16 +          alert = InventoryAlert.find_or_create_by!(
+       17 +            brand: inventory_change.product.brand,
+       18 +            product: inventory_change.product,
+       19 +            store: inventory_change.store,
+       20 +            created_at: inventory_change.created_at
+       21 +          )
+       22 +
+       23 +          created_count += 1 if alert.previously_new_record?
+       24 +        end
+       25 +
+       26 +        Rails.logger.info "[InventoryAlerts::Backfill] created=#{created_count}"
+       27 +        created_count
+       28 +      end
+       29 +    end
+       30 +  end
+
+> actually i think this is fine
+
+⏺ Write(app/services/inventory_alerts/backfill.rb)
+  ⎿  Wrote 31 lines to app/services/inventory_alerts/backfill.rb
+     module InventoryAlerts
+       class Backfill
+         def call
+           created_count = 0
+           InventoryChange.where(inventory_present: false).find_each do |inventory_change|
+             previous = InventoryChange
+               .where(product_id: inventory_change.product_id, store_id: inventory_change.store_id)
+               .where.not(id: inventory_change.id)
+               .where("event_time < ?", inventory_change.event_time)
+     … +21 lines (ctrl+o to expand)
+
+⏺ Done. You can run it with:
+
+  InventoryAlerts::Backfill.new.call
+
+  It iterates through all out-of-stock InventoryChanges, checks if the previous record for that product/store was also out of
+  stock, and creates an alert if so. Uses find_or_create_by! with created_at to avoid duplicates if run multiple times.
+
+> can you add a rake task to call this similar to how we did for PriceChanges?
+
+⏺ Search(pattern: "lib/tasks/**/*.rake")
+  ⎿  Found 2 files (ctrl+o to expand)
+
+⏺ Read(lib/tasks/price_changes_backfill.rake)
+  ⎿  Read 13 lines
+
+⏺ Write(lib/tasks/inventory_alerts_backfill.rake)
+  ⎿  Wrote 11 lines to lib/tasks/inventory_alerts_backfill.rake
+     namespace :inventory_alerts do
+       desc "Backfill inventory alerts from existing inventory changes"
+       task backfill: :environment do
+         puts "Backfilling inventory alerts..."
+         created_count = InventoryAlerts::Backfill.new.call
+         puts "Done. Created #{created_count} alerts."
+       end
+     end
+     … +1 line (ctrl+o to expand)
+
+⏺ Done. Run it with:
+
+  bin/rails inventory_alerts:backfill
+
+> can you add unit tests for the new callback behavior in app/models/inventory_change.rb
+
+⏺ Search(pattern: "test/**/*_test.rb")
+  ⎿  Found 5 files (ctrl+o to expand)
+
+⏺ Search(pattern: "spec/**/*_spec.rb")
+  ⎿  Found 0 files
+
+⏺ Read(test/models/price_change_test.rb)
+  ⎿  Read 31 lines
+
+⏺ Read(test/test_helper.rb)
+  ⎿  Read 16 lines
+
+⏺ Search(pattern: "test/fixtures/*.yml")
+  ⎿  Found 3 files (ctrl+o to expand)
+
+⏺ Read(test/fixtures/brands.yml)
+  ⎿  Read 12 lines
+
+⏺ Read(test/fixtures/products.yml)
+  ⎿  Read 2 lines
+
+⏺ Read(test/fixtures/stores.yml)
+  ⎿  Read 12 lines
+
+⏺ The fixtures are mostly empty. Let me set up proper fixtures and create the test file:
+
+⏺ Write(test/fixtures/brands.yml)
+  ⎿  Updated test/fixtures/brands.yml with 4 additions and 10 removals
+        1 -  # Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+        1 +  acme:
+        2 +    name: Acme Corp
+        3
+        4 -  # This model initially had no columns defined. If you add columns to the
+        5 -  # model remove the "{}" from the fixture names and add the columns immediately
+        6 -  # below each fixture, per the syntax in the comments below
+        7 -  #
+        8 -  one: {}
+        9 -  # column: value
+       10 -  #
+       11 -  two: {}
+       12 -  # column: value
+        4 +  globex:
+        5 +    name: Globex Inc
+
+⏺ Write(test/fixtures/stores.yml)
+  ⎿  Updated test/fixtures/stores.yml with 4 additions and 10 removals
+        1 -  # Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+        1 +  downtown:
+        2 +    address: 123 Main St
+        3
+        4 -  # This model initially had no columns defined. If you add columns to the
+        5 -  # model remove the "{}" from the fixture names and add the columns immediately
+        6 -  # below each fixture, per the syntax in the comments below
+        7 -  #
+        8 -  one: {}
+        9 -  # column: value
+       10 -  #
+       11 -  two: {}
+       12 -  # column: value
+        4 +  uptown:
+        5 +    address: 456 Oak Ave
+
+⏺ Write(test/fixtures/products.yml)
+  ⎿  Updated test/fixtures/products.yml with 7 additions and 1 removal
+       1 -  # Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+       1 +  widget:
+       2 +    name: Widget
+       3 +    brand: acme
+       4 +
+       5 +  gadget:
+       6 +    name: Gadget
+       7 +    brand: globex
+
+⏺ Write(test/fixtures/inventory_alerts.yml)
+  ⎿  Wrote 2 lines to test/fixtures/inventory_alerts.yml
+     # empty - alerts created dynamically in tests
+
+⏺ Write(test/fixtures/inventory_changes.yml)
+  ⎿  Wrote 2 lines to test/fixtures/inventory_changes.yml
+     # empty - inventory changes created dynamically in tests
+
+⏺ Write(test/models/inventory_change_test.rb)
+  ⎿  User rejected write to test/models/inventory_change_test.rb
+         1 +  require "test_helper"
+         2 +
+         3 +  class InventoryChangeTest < ActiveSupport::TestCase
+         4 +    setup do
+         5 +      @product = products(:widget)
+         6 +      @store = stores(:downtown)
+         7 +    end
+         8 +
+         9 +    test "does not create alert when inventory is present" do
+        10 +      assert_no_difference "InventoryAlert.count" do
+        11 +        InventoryChange.create!(
+        12 +          product: @product,
+        13 +          store: @store,
+        14 +          inventory_present: true,
+        15 +          event_time: 1.day.ago
+        16 +        )
+        17 +      end
+        18 +    end
+        19 +
+        20 +    test "does not create alert for first out of stock record" do
+        21 +      assert_no_difference "InventoryAlert.count" do
+        22 +        InventoryChange.create!(
+        23 +          product: @product,
+        24 +          store: @store,
+        25 +          inventory_present: false,
+        26 +          event_time: 1.day.ago
+        27 +        )
+        28 +      end
+        29 +    end
+        30 +
+        31 +    test "does not create alert when previous record was in stock" do
+        32 +      InventoryChange.create!(
+        33 +        product: @product,
+        34 +        store: @store,
+        35 +        inventory_present: true,
+        36 +        event_time: 2.days.ago
+        37 +      )
+        38 +
+        39 +      assert_no_difference "InventoryAlert.count" do
+        40 +        InventoryChange.create!(
+        41 +          product: @product,
+        42 +          store: @store,
+        43 +          inventory_present: false,
+        44 +          event_time: 1.day.ago
+        45 +        )
+        46 +      end
+        47 +    end
+        48 +
+        49 +    test "creates alert when previous record was also out of stock" do
+        50 +      InventoryChange.create!(
+        51 +        product: @product,
+        52 +        store: @store,
+        53 +        inventory_present: false,
+        54 +        event_time: 2.days.ago
+        55 +      )
+        56 +
+        57 +      assert_difference "InventoryAlert.count", 1 do
+        58 +        InventoryChange.create!(
+        59 +          product: @product,
+        60 +          store: @store,
+        61 +          inventory_present: false,
+        62 +          event_time: 1.day.ago
+        63 +        )
+        64 +      end
+        65 +    end
+        66 +
+        67 +    test "created alert has correct associations" do
+        68 +      InventoryChange.create!(
+        69 +        product: @product,
+        70 +        store: @store,
+        71 +        inventory_present: false,
+        72 +        event_time: 2.days.ago
+        73 +      )
+        74 +
+        75 +      InventoryChange.create!(
+        76 +        product: @product,
+        77 +        store: @store,
+        78 +        inventory_present: false,
+        79 +        event_time: 1.day.ago
+        80 +      )
+        81 +
+        82 +      alert = InventoryAlert.last
+        83 +      assert_equal @product.brand, alert.brand
+        84 +      assert_equal @product, alert.product
+        85 +      assert_equal @store, alert.store
+        86 +    end
+        87 +
+        88 +    test "creates alert for each consecutive out of stock after the first" do
+        89 +      InventoryChange.create!(
+        90 +        product: @product,
+        91 +        store: @store,
+        92 +        inventory_present: false,
+        93 +        event_time: 3.days.ago
+        94 +      )
+        95 +
+        96 +      assert_difference "InventoryAlert.count", 2 do
+        97 +        InventoryChange.create!(
+        98 +          product: @product,
+        99 +          store: @store,
+       100 +          inventory_present: false,
+       101 +          event_time: 2.days.ago
+       102 +        )
+       103 +
+       104 +        InventoryChange.create!(
+       105 +          product: @product,
+       106 +          store: @store,
+       107 +          inventory_present: false,
+       108 +          event_time: 1.day.ago
+       109 +        )
+       110 +      end
+       111 +    end
+       112 +
+       113 +    test "does not create alert for different product/store combo" do
+       114 +      other_product = products(:gadget)
+       115 +      other_store = stores(:uptown)
+       116 +
+       117 +      InventoryChange.create!(
+       118 +        product: @product,
+       119 +        store: @store,
+       120 +        inventory_present: false,
+       121 +        event_time: 2.days.ago
+       122 +      )
+       123 +
+       124 +      assert_no_difference "InventoryAlert.count" do
+       125 +        InventoryChange.create!(
+       126 +          product: other_product,
+       127 +          store: @store,
+       128 +          inventory_present: false,
+       129 +          event_time: 1.day.ago
+       130 +        )
+       131 +      end
+       132 +
+       133 +      assert_no_difference "InventoryAlert.count" do
+       134 +        InventoryChange.create!(
+       135 +          product: @product,
+       136 +          store: other_store,
+       137 +          inventory_present: false,
+       138 +          event_time: 1.day.ago
+       139 +        )
+       140 +      end
+       141 +    end
+       142 +
+       143 +    test "resets alert creation after in stock record" do
+       144 +      InventoryChange.create!(
+       145 +        product: @product,
+       146 +        store: @store,
+       147 +        inventory_present: false,
+       148 +        event_time: 3.days.ago
+       149 +      )
+       150 +
+       151 +      InventoryChange.create!(
+       152 +        product: @product,
+       153 +        store: @store,
+       154 +        inventory_present: true,
+       155 +        event_time: 2.days.ago
+       156 +      )
+       157 +
+       158 +      assert_no_difference "InventoryAlert.count" do
+       159 +        InventoryChange.create!(
+       160 +          product: @product,
+       161 +          store: @store,
+       162 +          inventory_present: false,
+       163 +          event_time: 1.day.ago
+       164 +        )
+       165 +      end
+       166 +    end
+       167 +  end
+
+> can we actually do these tests without the fixture changes please?
+
+⏺ Write(test/fixtures/brands.yml)
+  ⎿  Updated test/fixtures/brands.yml with 10 additions and 4 removals
+        1 -  acme:
+        2 -    name: Acme Corp
+        1 +  # Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+        2
+        3 -  globex:
+        4 -    name: Globex Inc
+        3 +  # This model initially had no columns defined. If you add columns to the
+        4 +  # model remove the "{}" from the fixture names and add the columns immediately
+        5 +  # below each fixture, per the syntax in the comments below
+        6 +  #
+        7 +  one: {}
+        8 +  # column: value
+        9 +  #
+       10 +  two: {}
+       11 +  # column: value
+
+⏺ Write(test/fixtures/stores.yml)
+  ⎿  Updated test/fixtures/stores.yml with 10 additions and 4 removals
+        1 -  downtown:
+        2 -    address: 123 Main St
+        1 +  # Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+        2
+        3 -  uptown:
+        4 -    address: 456 Oak Ave
+        3 +  # This model initially had no columns defined. If you add columns to the
+        4 +  # model remove the "{}" from the fixture names and add the columns immediately
+        5 +  # below each fixture, per the syntax in the comments below
+        6 +  #
+        7 +  one: {}
+        8 +  # column: value
+        9 +  #
+       10 +  two: {}
+       11 +  # column: value
+
+⏺ Write(test/fixtures/products.yml)
+  ⎿  Updated test/fixtures/products.yml with 1 addition and 7 removals
+       1 -  widget:
+       2 -    name: Widget
+       3 -    brand: acme
+       4 -
+       5 -  gadget:
+       6 -    name: Gadget
+       7 -    brand: globex
+       1 +  # Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+⏺ Bash(rm -f /Users/jared/code/RetailTestProject/test/fixtures/inventory_alerts.yml
+      /Users/jared/code/RetailTestProject/test/fixtures/inventory_changes.yml)
+  ⎿  (No content)
+
+⏺ Write(test/models/inventory_change_test.rb)
+  ⎿  Wrote 168 lines to test/models/inventory_change_test.rb
+     require "test_helper"
+     class InventoryChangeTest < ActiveSupport::TestCase
+       setup do
+         @brand = Brand.create!(name: "Test Brand")
+         @product = Product.create!(name: "Test Product", brand: @brand)
+         @store = Store.create!(address: "123 Test St")
+         @other_product = Product.create!(name: "Other Product", brand: @brand)
+         @other_store = Store.create!(address: "456 Other St")
+       end
+     … +158 lines (ctrl+o to expand)
+
+⏺ Bash(bin/rails test test/models/inventory_change_test.rb)
+  ⎿  Running 8 tests in a single process (parallelization threshold is 50)
+     Run options: --seed 44877
+     … +6 lines (ctrl+o to expand)
+
+⏺ All 8 tests pass. The tests cover:
+
+  1. No alert when inventory is present
+  2. No alert for first out of stock record
+  3. No alert when previous record was in stock
+  4. Creates alert when consecutive out of stock
+  5. Alert has correct brand/product/store associations
+  6. Creates an alert for each consecutive out of stock (not just the second)
+  7. Different product/store combos are tracked independently
+  8. An in-stock record resets the consecutive streak

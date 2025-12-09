@@ -1,0 +1,29 @@
+<h1>Inventory Alerts for <%= @brand.name %></h1>
+
+<table>
+  <thead>
+    <tr>
+      <th>Product</th>
+      <th>Store</th>
+      <th>Created</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    <% @inventory_alerts.each do |alert| %>
+      <tr>
+        <td><%= link_to alert.product.name, product_path(alert.product) %></td>
+        <td><%= link_to alert.store.address, store_path(alert.store) %></td>
+        <td><%= alert.created_at.strftime("%Y-%m-%d %H:%M") %></td>
+        <td><%= link_to "View", brand_inventory_alert_path(@brand, alert) %></td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>
+
+<nav>
+  <%= link_to "Back to #{@brand.name}", brand_path(@brand) %> |
+  <%= link_to "Brands", brands_path %> |
+  <%= link_to "Products", products_path %> |
+  <%= link_to "Stores", stores_path %>
+</nav>

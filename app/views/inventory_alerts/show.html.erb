@@ -1,0 +1,38 @@
+<h1>Inventory Alert</h1>
+
+<p>
+  <strong>Brand:</strong>
+  <%= link_to @inventory_alert.brand.name, brand_path(@inventory_alert.brand) %>
+</p>
+
+<p>
+  <strong>Product:</strong>
+  <%= link_to @inventory_alert.product.name, product_path(@inventory_alert.product) %>
+</p>
+
+<p>
+  <strong>Store:</strong>
+  <%= link_to @inventory_alert.store.address, store_path(@inventory_alert.store) %>
+</p>
+
+<p>
+  <strong>Out of stock since:</strong>
+  <% if @inventory_alert.last_in_stock_at %>
+    <%= @inventory_alert.last_in_stock_at.strftime("%Y-%m-%d %H:%M") %>
+  <% else %>
+    Never in stock
+  <% end %>
+</p>
+
+<p>
+  <strong>Consecutive out of stock updates:</strong>
+  <%= @inventory_alert.consecutive_out_of_stock_count %>
+</p>
+
+<nav>
+  <%= link_to "Back to Alerts", brand_inventory_alerts_path(@brand) %> |
+  <%= link_to @brand.name, brand_path(@brand) %> |
+  <%= link_to "Brands", brands_path %> |
+  <%= link_to "Products", products_path %> |
+  <%= link_to "Stores", stores_path %>
+</nav>

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2025_12_09_152549) do
+ActiveRecord::Schema[7.1].define(version: 2025_12_09_162809) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -18,6 +18,17 @@ ActiveRecord::Schema[7.1].define(version: 2025_12_09_152549) do
     t.string "name"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+  end
+
+  create_table "inventory_alerts", force: :cascade do |t|
+    t.bigint "brand_id", null: false
+    t.bigint "product_id", null: false
+    t.bigint "store_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["brand_id"], name: "index_inventory_alerts_on_brand_id"
+    t.index ["product_id"], name: "index_inventory_alerts_on_product_id"
+    t.index ["store_id"], name: "index_inventory_alerts_on_store_id"
   end
 
   create_table "inventory_changes", force: :cascade do |t|
@@ -56,6 +67,9 @@ ActiveRecord::Schema[7.1].define(version: 2025_12_09_152549) do
     t.datetime "updated_at", null: false
   end
 
+  add_foreign_key "inventory_alerts", "brands"
+  add_foreign_key "inventory_alerts", "products"
+  add_foreign_key "inventory_alerts", "stores"
   add_foreign_key "inventory_changes", "products"
   add_foreign_key "inventory_changes", "stores"
   add_foreign_key "price_changes", "products"

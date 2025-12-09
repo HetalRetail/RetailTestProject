@@ -5,6 +5,10 @@
   <%= @brand.products.size %>
 </p>
 
+<p>
+  <%= link_to "View Inventory Alerts", brand_inventory_alerts_path(@brand) %>
+</p>
+
 <h2>Products</h2>
 <table>
   <thead>

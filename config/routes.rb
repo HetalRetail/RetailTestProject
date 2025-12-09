@@ -7,7 +7,9 @@ Rails.application.routes.draw do
 
   resources :products, only: [:index, :show]
   resources :stores, only: [:index, :show]
-  resources :brands, only: [:index, :show]
+  resources :brands, only: [:index, :show] do
+    resources :inventory_alerts, only: [:index, :show]
+  end
 
   # Defines the root path route ("/")
   root "stores#index"

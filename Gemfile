@@ -1,9 +1,9 @@
 source "https://rubygems.org"
 
-ruby "3.2.2"
+ruby "4.0.9"
 
 # Bundle edge Rails instead: gem "rails", github: "rails/rails", branch: "main"
-gem "rails", "~> 7.1.6"
+gem "rails", "~> 8.1.4"
 
 # The original asset pipeline for Rails [https://github.com/rails/sprockets-rails]
 gem "sprockets-rails"
@@ -25,6 +25,9 @@ gem "stimulus-rails"
 
 # Build JSON APIs with ease [https://github.com/rails/jbuilder]
 gem "jbuilder"
+
+# CSV is a bundled gem since Ruby 3.4; TrackingEvents::CsvImporter needs it
+gem "csv"
 
 # Use Redis adapter to run Action Cable in production
 # gem "redis", ">= 4.0.1"

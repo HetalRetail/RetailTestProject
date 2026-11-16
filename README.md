@@ -21,23 +21,23 @@ There is no single "correct" solution — but there are many poor ones. We want 
 
 ## Setup
 
-This app is a standard Rails 7.1 / Ruby 3.2 project backed by PostgreSQL.
+This app is a standard Rails 8.1 / Ruby 4.0 project backed by PostgreSQL.
 
 ### Prerequisites
 
-- **Ruby**: `3.2.2`
-- **Rails**: `~> 7.1.6`
+- **Ruby**: `4.0.9`
+- **Rails**: `~> 8.1.4`
 - **PostgreSQL**: 13+ recommended
 
 You can use **rbenv**, **rvm**, or **asdf** to install the correct Ruby version.
 
 #### Installing Ruby with rbenv
 ```bash
-# Install Ruby 3.2.2
-rbenv install 3.2.2
+# Install Ruby 4.0.9
+rbenv install 4.0.9
 
 # Set it locally for this project
-rbenv local 3.2.2
+rbenv local 4.0.9
 ```
 
 ### Installation
@@ -74,8 +74,8 @@ Improve the app's overall performance. This can be done as you work on the first
 
 ## Technology Stack
 
-- **Ruby**: 3.2.2
-- **Rails**: 7.1.6
+- **Ruby**: 4.0.9
+- **Rails**: 8.1.4
 - **Database**: PostgreSQL 13+
 
 ## Evaluation Criteria
@@ -90,7 +90,7 @@ Feel free to make reasonable assumptions where requirements are ambiguous—just
 
 ## Time Expectation
 
-This project should take approximately [2-3 hours] to complete. Focus on demonstrating your problem-solving approach rather than achieving perfection. AI is allowed on this project. 
+This project should take approximately [2 hours] to complete. Focus on demonstrating your problem-solving approach rather than achieving perfection. AI is allowed on this project. 
 
 ## Submission
 
